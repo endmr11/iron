@@ -1,8 +1,9 @@
 name: iron
 description: "An architecture forged like iron, as solid as armor for your Flutter apps! Focusing on clarity, persistence, and reactivity with zero dependencies."
-version: 0.0.1
+version: 0.0.2
 homepage: https://github.com/endmr11/iron
 topics: [architecture, reactive, state-management, dependency-injection, persistence]
+documentation: https://endmr11.github.io/system_design/en/mobile/iron-architecture.html
 environment:
   sdk: ">=2.17.0 <4.0.0"
   flutter: ">=1.17.0"

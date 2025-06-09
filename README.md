@@ -43,7 +43,7 @@ Add this magic line to your `pubspec.yaml` file:
 
 ```yaml
 dependencies:
-  iron: ^0.0.1 # Check pub.dev for the latest version
+  iron: any_version # Check pub.dev for the latest version
 ```
 And run `flutter pub get` in your terminal. You are now ready to forge!
 
