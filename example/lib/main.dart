@@ -5,8 +5,15 @@ void main() {
   IronLocator.instance.registerSingleton(InterceptorRegistry(), global: true);
   IronLocator.instance.registerSingleton(SagaProcessor(), global: true);
   IronLocator.instance.find<InterceptorRegistry>().register(LoggingInterceptor(openDebug: true));
-  IronLocator.instance.registerLazySingleton(() => TodoCore(), global: true);
-  runApp(const MyApp());
+  // We'll get TodoCore from IronProvider.
+  // IronLocator.instance.registerLazySingleton(() => TodoCore(), global: true);
+  runApp(
+    // We'll get TodoCore from IronProvider.
+    IronProvider<TodoCore, TodoState>(
+      core: TodoCore(), // TodoCore\'u burada oluşturuyoruz.
+      child: const MyApp(),
+    ),
+  );
 }
 
 class MyApp extends StatelessWidget {
@@ -37,7 +44,7 @@ class TodoPage extends StatefulWidget {
 
 class _TodoPageState extends State<TodoPage> {
   final _textController = TextEditingController();
-  final _todoCore = IronLocator.instance.find<TodoCore>();
+  // We'll get TodoCore from IronProvider.
 
   @override
   void dispose() {
@@ -47,8 +54,12 @@ class _TodoPageState extends State<TodoPage> {
 
   @override
   Widget build(BuildContext context) {
-    return EffectListener<TodoDeletionSuccess>(
-      onEffect: (effect) {
+    // We'll get TodoCore from context.
+    final todoCore = context.ironCore<TodoCore, TodoState>();
+
+    // We use IronConsumer instead of EffectListener and IronView.
+    return IronConsumer<TodoCore, TodoState, TodoDeletionSuccess>(
+      effectListener: (context, effect) {
         ScaffoldMessenger.of(context)
           ..removeCurrentSnackBar()
           ..showSnackBar(
@@ -57,68 +68,71 @@ class _TodoPageState extends State<TodoPage> {
               action: SnackBarAction(
                 label: 'GERİ AL',
                 onPressed: () {
-                  _todoCore.add(TodoUndoDeletion(effect.deletedTodo));
+                  // We'll get todoCore here
+                  todoCore.add(TodoUndoDeletion(effect.deletedTodo));
                 },
               ),
             ),
           );
       },
-      child: Scaffold(
-        appBar: AppBar(title: const Text('Iron Todo')),
-        body: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _textController,
-                      decoration: const InputDecoration(labelText: 'Ne yapılması gerekiyor?'),
-                      onSubmitted: (value) {
-                        _todoCore.add(TodoAdded(value));
+      builder: (context, asyncState) {
+        return Scaffold(
+          appBar: AppBar(title: const Text('Iron Todo')),
+          body: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _textController,
+                        decoration: const InputDecoration(labelText: 'Ne yapılması gerekiyor?'),
+                        onSubmitted: (value) {
+                          todoCore.add(TodoAdded(value));
+                          _textController.clear();
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton.filled(
+                      icon: const Icon(Icons.add),
+                      onPressed: () {
+                        todoCore.add(TodoAdded(_textController.text));
                         _textController.clear();
+                        FocusScope.of(context).unfocus();
                       },
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  IconButton.filled(
-                    icon: const Icon(Icons.add),
-                    onPressed: () {
-                      _todoCore.add(TodoAdded(_textController.text));
-                      _textController.clear();
-                      FocusScope.of(context).unfocus();
+                  ],
+                ),
+                const SizedBox(height: 24),
+                const TodoFilterButtons(),
+                const SizedBox(height: 16),
+                Expanded(
+                  // Instead of IronView, we use asyncState directly.
+                  child: asyncState.when(
+                    loading: () => const Center(child: CircularProgressIndicator()),
+                    error: (error, _) => Center(child: Text('Bir hata oluştu: $error')),
+                    data: (state) {
+                      final todos = state.filteredTodos;
+                      if (todos.isEmpty) {
+                        return const Center(child: Text('Görünüşe göre her şey tamam! 🎉'));
+                      }
+                      return ListView.builder(
+                        itemCount: todos.length,
+                        itemBuilder: (context, index) {
+                          final todo = todos[index];
+                          return TodoTile(todo: todo);
+                        },
+                      );
                     },
                   ),
-                ],
-              ),
-              const SizedBox(height: 24),
-              const TodoFilterButtons(),
-              const SizedBox(height: 16),
-              Expanded(
-                child: IronView<TodoCore, TodoState>(
-                  core: _todoCore,
-                  loadingBuilder: (context) => const Center(child: CircularProgressIndicator()),
-                  errorBuilder: (context, error) => Center(child: Text('Bir hata oluştu: $error')),
-                  builder: (context, state) {
-                    final todos = state.filteredTodos;
-                    if (todos.isEmpty) {
-                      return const Center(child: Text('Görünüşe göre her şey tamam! 🎉'));
-                    }
-                    return ListView.builder(
-                      itemCount: todos.length,
-                      itemBuilder: (context, index) {
-                        final todo = todos[index];
-                        return TodoTile(todo: todo);
-                      },
-                    );
-                  },
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
@@ -128,9 +142,14 @@ class TodoFilterButtons extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final todoCore = IronLocator.instance.find<TodoCore>();
+    // We'll get TodoCore from context.
+    final todoCore = context.ironCore<TodoCore, TodoState>();
+    // You can replace IronView with context.watchIron or use IronConsumer.
+    // For now, we keep IronView for buildWhen optimization.
+    // Alternatively, you can use IronConsumer<TodoCore, TodoState, NonExistentEffect>
+    // and check state.filter in the builder.
     return IronView<TodoCore, TodoState>(
-      core: todoCore,
+      core: todoCore, // Or you can use context.watchIron<TodoCore,TodoState>() with StreamBuilder.
       buildWhen: (previous, current) => previous.filter != current.filter,
       builder: (context, state) {
         return SegmentedButton<TodoFilter>(
@@ -155,7 +174,8 @@ class TodoTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final todoCore = IronLocator.instance.find<TodoCore>();
+    // We'll get TodoCore from context.
+    final todoCore = context.ironCore<TodoCore, TodoState>();
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4.0),
       child: ListTile(

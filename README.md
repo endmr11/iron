@@ -91,6 +91,25 @@ That's it! 🎉 Basic setup is complete. Now, are you ready to see the real powe
 
 ---
 
+## 📚 API Reference
+
+Detailed API documentation can be generated using the `dart doc` command. Ensure all public APIs have comprehensive DartDoc comments.
+
+You can find the generated documentation in the `doc/api` directory after running the command.
+
+---
+
+## 🛠️ Advanced Examples
+
+Check out the `example/` directory for more advanced use cases, including:
+
+*   **Complex Counter:** Demonstrates more intricate state manipulations and event handling.
+*   **Saga Example:** Shows how to use `IronSaga` for managing side effects and complex asynchronous flows.
+*   **Persistence Example:** Illustrates how to use `PersistentIronCore` to save and restore application state.
+*   **Interceptor Usage:** Provides a practical example of implementing and registering custom interceptors.
+
+---
+
 ## ⚔️ Advanced Forging Techniques ⚔️
 
 #### 1. The Watchtower: Activating the LoggingInterceptor
@@ -181,16 +200,145 @@ static MyState _parseJsonIsolate(String jsonString) {
 
 ---
 
-## 🗺️ The Future and Contributing
+## 🏗️ How to Use Iron: Step-by-Step Guide
 
-**Iron Core** gets stronger every day! Have an idea? Found a bug?
+Iron makes state management in Flutter powerful, testable, and fun. Here’s how you can use it in your own app, step by step:
 
-✨ **All contributions and stars (⭐) are welcome!** ✨
+### 1. Add Iron to Your Project
 
-Feel free to open an `issue` or send a `pull request`. Let's make this architecture even more powerful together!
+Add this to your `pubspec.yaml`:
+
+```yaml
+dependencies:
+  iron: ^latest_version # Check pub.dev for the latest version
+```
+Then run:
+```sh
+flutter pub get
+```
 
 ---
 
-## ⚖️ License
+### 2. Define Your State and Events
 
-This project is licensed under the **MIT License**. In short, you can take this iron and forge it however you like!
+Create your state and event classes:
+
+```dart
+class CounterState {
+  final int count;
+  const CounterState(this.count);
+}
+
+abstract class CounterEvent extends IronEvent {}
+class IncrementEvent extends CounterEvent {}
+```
+
+---
+
+### 3. Create Your Core (Business Logic)
+
+Extend `IronCore` and register your event handlers:
+
+```dart
+class CounterCore extends IronCore<CounterEvent, CounterState> {
+  CounterCore() : super(const CounterState(0)) {
+    on<IncrementEvent>((event) {
+      updateState(AsyncData(CounterState(state.value.count + 1)));
+    });
+  }
+}
+```
+
+---
+
+### 4. Set Up Iron in Your `main.dart`
+
+Register the global systems and provide your core to the widget tree:
+
+```dart
+void main() {
+  IronLocator.instance.registerSingleton(InterceptorRegistry(), global: true);
+  IronLocator.instance.registerSingleton(SagaProcessor(), global: true);
+  IronLocator.instance.find<InterceptorRegistry>().register(LoggingInterceptor(openDebug: true));
+
+  runApp(
+    IronProvider<CounterCore, CounterState>(
+      core: CounterCore(),
+      child: const MyApp(),
+    ),
+  );
+}
+```
+
+---
+
+### 5. Use Your Core in Widgets
+
+Access your core and state anywhere in the widget tree using context extensions and IronConsumer:
+
+```dart
+class CounterPage extends StatelessWidget {
+  const CounterPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final counterCore = context.ironCore<CounterCore, CounterState>();
+    return IronConsumer<CounterCore, CounterState, IronEffect>(
+      builder: (context, asyncState) {
+        return Scaffold(
+          appBar: AppBar(title: const Text('Counter')),
+          body: Center(
+            child: Text('Count: \\${asyncState.value.count}', style: const TextStyle(fontSize: 32)),
+          ),
+          floatingActionButton: FloatingActionButton(
+            onPressed: () => counterCore.add(IncrementEvent()),
+            child: const Icon(Icons.add),
+          ),
+        );
+      },
+    );
+  }
+}
+```
+
+---
+
+### 6. Listen to Effects (Optional)
+
+If your core emits effects, handle them with the `effectListener` parameter:
+
+```dart
+IronConsumer<CounterCore, CounterState, MyEffect>(
+  effectListener: (context, effect) {
+    // Show a snackbar, dialog, etc.
+  },
+  builder: (context, asyncState) {
+    // ...
+  },
+)
+```
+
+---
+
+### 7. Advanced: Persistence, Sagas, and Interceptors
+
+- **Persistence:** Use `PersistentIronCore` to save/load state automatically.
+- **Sagas:** Use `IronSaga` for advanced side-effect orchestration.
+- **Interceptors:** Log, debug, or modify events/state/effects globally.
+
+See the `example/` directory for real-world usage!
+
+---
+
+## 🧑‍💻 Quick Recap
+
+1. Define your state and events.
+2. Create your core and register event handlers.
+3. Register Iron systems in `main.dart`.
+4. Provide your core with `IronProvider`.
+5. Use `IronConsumer` and context extensions in your widgets.
+6. (Optional) Listen to effects for side-effects.
+
+You’re ready to build robust, testable, and scalable Flutter apps with Iron!
+
+---

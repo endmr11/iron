@@ -115,6 +115,7 @@ abstract class IronCore<TEvent extends IronEvent, TState> {
     if (_isBusy) return;
     _isBusy = true;
     updateState(AsyncLoading<TState>());
+    await Future.microtask(() {}); // Loading state'in UI'ya yansımasını garanti et
     try {
       final newState = await future();
       updateState(AsyncData(newState));
@@ -139,6 +140,7 @@ abstract class IronCore<TEvent extends IronEvent, TState> {
     if (_isBusy) return;
     _isBusy = true;
     updateState(AsyncLoading<TState>());
+    await Future.microtask(() {}); // Loading state'in UI'ya yansımasını garanti et
     try {
       final TState newState = await compute(computation, message);
       updateState(AsyncData(newState));

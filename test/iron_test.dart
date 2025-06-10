@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:iron/iron.dart';
@@ -38,18 +40,16 @@ class TestCore extends IronCore<TestEvent, TestState> {
   TestCore(super.initialState);
   TestCore.loading() : super.loading();
 
-  void increment(int value) {
+  Future<void> increment(int value) {
     final currentData = state.dataOrNull;
     final int currentCount = currentData?.count ?? 0;
-    runAndUpdate(() async {
-      await Future.delayed(Duration.zero);
+    return runAndUpdate(() async {
       return TestState(currentCount + value);
     });
   }
 
   void causeError() {
     runAndUpdate(() async {
-      await Future.delayed(Duration.zero);
       throw Exception('Test Error');
     });
   }
@@ -58,7 +58,6 @@ class TestCore extends IronCore<TestEvent, TestState> {
     final currentData = state.dataOrNull;
     final int currentCount = currentData?.count ?? 0;
     computeAndUpdateState<int>((message) async {
-      await Future.delayed(Duration.zero);
       return TestState(currentCount + message);
     }, value);
   }
@@ -87,6 +86,7 @@ void main() {
     mockInterceptorRegistry = MockInterceptorRegistry();
 
     when(() => mockSagaProcessor.registerCore(any())).thenReturn(null);
+    when(() => mockSagaProcessor.effectStream).thenAnswer((_) => Stream<IronEffect>.empty());
     when(() => mockInterceptorRegistry.notifyEvent(any(), any())).thenReturn(null);
     when(() => mockInterceptorRegistry.notifyStateChange(any(), any(), any())).thenReturn(null);
     when(() => mockInterceptorRegistry.notifyError(any(), any(), any())).thenReturn(null);
@@ -196,6 +196,219 @@ void main() {
       expect(() => core.add(const TestEvent(1)), throwsA(isA<StateError>()));
       expect(() => core.updateState(AsyncData(TestState(1))), throwsA(isA<StateError>()));
       expect(() => core.dispatchEffect(const TestEffect("disposed")), throwsA(isA<StateError>()));
+    });
+  });
+
+  group('IronProvider Tests', () {
+    testWidgets('IronProvider provides core to descendants', (WidgetTester tester) async {
+      final initialState = TestState(10);
+      final core = TestCore(initialState);
+      late TestCore? providedCore;
+
+      await tester.pumpWidget(
+        IronProvider<TestCore, TestState>(
+          core: core,
+          child: Builder(
+            builder: (context) {
+              providedCore = IronProvider.of<TestCore, TestState>(context);
+              return const SizedBox();
+            },
+          ),
+        ),
+      );
+
+      expect(providedCore, core);
+      expect(providedCore?.state, AsyncData(initialState));
+    });
+
+    testWidgets('IronProvider.maybeOf returns core if found', (WidgetTester tester) async {
+      final core = TestCore(TestState(0));
+      late TestCore? providedCore;
+
+      await tester.pumpWidget(
+        IronProvider<TestCore, TestState>(
+          core: core,
+          child: Builder(
+            builder: (context) {
+              providedCore = IronProvider.maybeOf<TestCore, TestState>(context);
+              return const SizedBox();
+            },
+          ),
+        ),
+      );
+      expect(providedCore, core);
+    });
+
+    testWidgets('IronProvider.maybeOf returns null if not found', (WidgetTester tester) async {
+      late TestCore? providedCore;
+      await tester.pumpWidget(
+        Builder(
+          builder: (context) {
+            providedCore = IronProvider.maybeOf<TestCore, TestState>(context);
+            return const SizedBox();
+          },
+        ),
+      );
+      expect(providedCore, isNull);
+    });
+
+    testWidgets('IronProvider.of throws if not found', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        Builder(
+          builder: (context) {
+            expect(() => IronProvider.of<TestCore, TestState>(context), throwsA(isA<AssertionError>()));
+            return const SizedBox();
+          },
+        ),
+      );
+    });
+  });
+
+  group('IronConsumer Tests', () {
+    testWidgets('IronConsumer rebuilds on state change and listens to effects', (WidgetTester tester) async {
+      final core = TestCore(TestState(0));
+      final List<AsyncValue<TestState>> builtStates = [];
+      final List<TestEffect> receivedEffects = [];
+      const testEffect = TestEffect('Consumer Effect');
+
+      final effectController = StreamController<IronEffect>.broadcast();
+      when(() => mockSagaProcessor.effectStream).thenAnswer((_) => effectController.stream);
+
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: IronProvider<TestCore, TestState>(
+            core: core,
+            child: IronConsumer<TestCore, TestState, TestEffect>(
+              builder: (context, state) {
+                builtStates.add(state);
+                return Text(state.dataOrNull?.count.toString() ?? 'loading');
+              },
+              effectListener: (context, effect) {
+                receivedEffects.add(effect);
+              },
+            ),
+          ),
+        ),
+      );
+
+      expect(builtStates.length, 1);
+      expect(builtStates.first, isA<AsyncData<TestState>>());
+      expect((builtStates.first as AsyncData<TestState>).data.count, 0);
+      expect(find.text('0'), findsOneWidget);
+
+      await core.increment(5);
+      await tester.pump();
+      await tester.pump();
+
+      expect(builtStates.length, anyOf(2, 3));
+      if (builtStates.length == 3) {
+        expect(builtStates[1], isA<AsyncLoading<TestState>>());
+        expect(builtStates[2], isA<AsyncData<TestState>>());
+        expect((builtStates[2] as AsyncData<TestState>).data.count, 5);
+      } else {
+        expect(builtStates[1], isA<AsyncData<TestState>>());
+        expect((builtStates[1] as AsyncData<TestState>).data.count, 5);
+      }
+      expect(find.text('5'), findsOneWidget);
+
+      core.dispatchEffect(testEffect);
+      effectController.add(testEffect);
+      await tester.pumpAndSettle();
+
+      expect(receivedEffects.length, 1);
+      expect(receivedEffects.first, testEffect);
+      await effectController.close();
+    });
+  });
+
+  group('IronContextExtensions Tests', () {
+    testWidgets('context.ironCore returns core from IronProvider', (WidgetTester tester) async {
+      final core = TestCore(TestState(0));
+      late TestCore? retrievedCore;
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: IronProvider<TestCore, TestState>(
+            core: core,
+            child: Builder(
+              builder: (context) {
+                retrievedCore = context.ironCore<TestCore, TestState>();
+                return const SizedBox();
+              },
+            ),
+          ),
+        ),
+      );
+      expect(retrievedCore, core);
+    });
+
+    testWidgets('context.maybeIronCore returns core if present', (WidgetTester tester) async {
+      final core = TestCore(TestState(0));
+      late TestCore? retrievedCore;
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: IronProvider<TestCore, TestState>(
+            core: core,
+            child: Builder(
+              builder: (context) {
+                retrievedCore = context.maybeIronCore<TestCore, TestState>();
+                return const SizedBox();
+              },
+            ),
+          ),
+        ),
+      );
+      expect(retrievedCore, core);
+    });
+
+    testWidgets('context.maybeIronCore returns null if not present', (WidgetTester tester) async {
+      late TestCore? retrievedCore;
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Builder(
+            builder: (context) {
+              retrievedCore = context.maybeIronCore<TestCore, TestState>();
+              return const SizedBox();
+            },
+          ),
+        ),
+      );
+      expect(retrievedCore, isNull);
+    });
+
+    testWidgets('context.watchIron returns current state and rebuilds widget', (WidgetTester tester) async {
+      final core = TestCore(TestState(0));
+      AsyncValue<TestState>? watchedState;
+
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: IronProvider<TestCore, TestState>(
+            core: core,
+            child: StreamBuilder<AsyncValue<TestState>>(
+                stream: core.stateStream,
+                initialData: core.state,
+                builder: (context, snapshot) {
+                  watchedState = context.watchIron<TestCore, TestState>();
+                  return Text(watchedState?.dataOrNull?.count.toString() ?? 'N/A');
+                }),
+          ),
+        ),
+      );
+
+      expect(watchedState, isA<AsyncData<TestState>>());
+      expect((watchedState as AsyncData<TestState>).data.count, 0);
+      expect(find.text('0'), findsOneWidget);
+
+      core.increment(7);
+      await tester.pumpAndSettle();
+
+      expect(watchedState, isA<AsyncData<TestState>>());
+      expect((watchedState as AsyncData<TestState>).data.count, 7);
+      expect(find.text('7'), findsOneWidget);
     });
   });
 }

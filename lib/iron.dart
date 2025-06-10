@@ -10,3 +10,5 @@ export 'src/persistence/adapters/local_file_adapter.dart';
 export 'src/saga/iron_saga.dart';
 export 'src/ui/iron_view.dart';
 export 'src/ui/effect_listener.dart';
+export 'src/ui/iron_provider.dart';
+export 'src/ui/iron_consumer.dart';
